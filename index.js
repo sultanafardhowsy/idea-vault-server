@@ -72,6 +72,18 @@ app.get('/ideas', async (req, res) => {
   }
 });
 
+app.get('/showalldata/:id',(req,res,next) => {
+const header = req.headers.authorization
+if(header === "logged in"){
+next()} else {
+  res.status(401).json({message: "Unauthorised"})
+}
+},
+   async(req,res) =>{
+const {id} = req.params;
+ const result = await destinationCollection.findOne({_id: new ObjectId(id)})
+res.json(result)
+})
 
 
 await client.db('admin').command({ping: 1})
