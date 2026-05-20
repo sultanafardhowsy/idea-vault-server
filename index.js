@@ -10,7 +10,7 @@ const port = process.env.PORT;
  app.use(express.json())
 
 app.get('/',(req,res) => {
-    res.send('simple CRUD operation')
+    res.send('idea vault operation')
 })
 
 
@@ -83,6 +83,18 @@ next()} else {
 const {id} = req.params;
  const result = await destinationCollection.findOne({_id: new ObjectId(id)})
 res.json(result)
+})
+
+
+app.patch('/showalldata/:id', async(req,res) =>{
+  const id = req.params;
+  const updatedData = req.body;
+console.log(updatedData);
+  const result = await destinationCollection.updateOne(
+    {_id: new ObjectId(id)},
+    {$set: updatedData}
+  )
+  res.json(result)
 })
 
 
