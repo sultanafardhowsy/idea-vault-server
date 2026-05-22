@@ -122,17 +122,45 @@ app.post('/allidea', async (req, res) => {
   }
 });
 
-// Get Single Idea
-app.get('/showalldata/:id', async (req, res) => {
+// Get Ideas by Email
+app.get("/ideas-by-email", async (req, res) => {
   try {
-    const { id } = req.params;
-    const result = await ideasCollection.findOne({ _id: new ObjectId(id) });
+    const userEmail = req.query.email;
 
-    if (!result) return res.status(404).json({ error: "Idea not found" });
+    if (!userEmail) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
+    const result = await ideasCollection
+      .find({ email: userEmail })
+      .sort({ createdAt: -1 })
+      .toArray();
 
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: "Failed to fetch idea" });
+    res.status(500).json({ error: "Failed to fetch ideas" });
+  }
+});
+
+// Get Single Idea
+app.get('/showalldata/:id', async (req, res) => {
+  try {
+    const token = req.headers.authorization;
+    console.log(token);
+
+    const { id } = req.params;
+
+    const result = await ideasCollection.findOne({
+      _id: new ObjectId(id)
+    });
+
+    if (!result) {
+      return res.status(404).json({ error: "Idea not found" });
+    }
+
+    return res.json(result);
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to fetch idea" });
   }
 });
 
@@ -157,20 +185,24 @@ app.patch('/showalldata/:id', async (req, res) => {
   }
 });
 
-// Get My Ideas
-app.get('/myideas', async (req, res) => {
-  try {
-    const userEmail = req.query.email;
-    if (!userEmail) return res.status(400).json({ error: 'Email is required' });
 
-    const result = await ideasCollection
-      .find({ email: userEmail })
+// Get My Comments
+app.get('/mycomments', async (req, res) => {
+  try {
+    const userId = req.query.userId;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'UserId is required' });
+    }
+
+    const result = await commentsCollection
+      .find({ userId })
       .sort({ createdAt: -1 })
       .toArray();
 
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch your ideas' });
+    res.status(500).json({ error: 'Failed to fetch comments' });
   }
 });
 
@@ -188,8 +220,7 @@ app.delete("/ideas/:id", async (req, res) => {
   }
 });
 
-// ==================== COMMENTS ====================
-// ==================== COMMENTS ====================
+
 
 // Get 6 Latest Comments (for Community Feedback section)
 app.get("/comments6", async (req, res) => {
@@ -266,12 +297,31 @@ app.delete("/comments/:id", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+
+app.patch("/ideas/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await ideasCollection.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: req.body
+      }
+    );
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: "Update failed" });
+  }
+});
+
 // Start Server
 async function startServer() {
   await connectDB();
   
   app.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(` Server running on http://localhost:${PORT}`);
   });
 }
 
