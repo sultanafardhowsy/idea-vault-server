@@ -1,22 +1,19 @@
 const express = require('express');
-const app = express();
-const dotenv = require('dotenv')
-dotenv.config();
-const cors = require('cors')
+const dotenv = require('dotenv');
+const cors = require('cors');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const port = process.env.PORT;
 
- app.use(cors())
- app.use(express.json())
+dotenv.config();
 
-app.get('/',(req,res) => {
-    res.send('idea vault operation')
-})
+const app = express();
+const PORT = process.env.PORT || 5000;
 
+// Middleware
+app.use(cors({ origin: "http://localhost:3000" }));
+app.use(express.json());
 
-
+// MongoDB Setup
 const uri = process.env.MONGODB_URI;
-
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -25,224 +22,257 @@ const client = new MongoClient(uri, {
   }
 });
 
-const run = async() =>{
-try{
-await client.connect();
+let ideasCollection;
+let commentsCollection;
 
-const db = client.db('ideavault')
-const destinationCollection = db.collection('allideas')
- const commentsCollection = db.collection("comments");
-
-
-app.get('/allideas', async (req, res) => {
+async function connectDB() {
   try {
-    const result = await destinationCollection.find().toArray();
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch ideas' });
+    await client.connect();
+    const db = client.db('ideavault');
+    
+    ideasCollection = db.collection('allideas');
+    commentsCollection = db.collection('comments');
+
+    // Create Text Index for better search
+    await ideasCollection.createIndex({
+      title: "text",
+      shortDescription: "text",
+      description: "text",
+      category: "text",
+      founder: "text",
+      problemStatement: "text",
+      proposedSolution: "text"
+    });
+
+    console.log("✅ MongoDB Connected Successfully");
+    console.log("✅ Text Search Index Created");
+  } catch (error) {
+    console.error("❌ MongoDB Connection Error:", error);
   }
-})
+}
 
+// ====================== ROUTES ======================
 
+app.get('/', (req, res) => {
+  res.send('Idea Vault Server is Running');
+});
+
+// ==================== IDEAS ====================
+
+// Get All Ideas with Search
+app.get("/allideas", async (req, res) => {
+  try {
+    const search = (req.query.search || "").trim();
+
+    let query = {};
+
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: "i" } },
+        { shortDescription: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+        { category: { $regex: search, $options: "i" } },
+        { founder: { $regex: search, $options: "i" } },
+        { problemStatement: { $regex: search, $options: "i" } },
+        { proposedSolution: { $regex: search, $options: "i" } },
+        { tags: { $regex: search, $options: "i" } }
+      ];
+    }
+
+    const result = await ideasCollection
+      .find(query)
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch ideas" });
+  }
+});
+
+// Get Limited Ideas (for homepage)
+app.get('/ideas', async (req, res) => {
+  try {
+    const result = await ideasCollection
+      .find()
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .toArray();
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create New Idea
 app.post('/allidea', async (req, res) => {
   try {
     const newIdea = req.body;
-    
-    // Insert document into your db and collection
-    const result = await db.collection('allideas').insertOne(newIdea);
-    
-    res.status(201).json({ 
-      success: true, 
-      message: "Idea published successfully!", 
-      insertedId: result.insertedId 
+    const result = await ideasCollection.insertOne(newIdea);
+
+    res.status(201).json({
+      success: true,
+      message: "Idea published successfully!",
+      insertedId: result.insertedId
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-app.get('/ideas', async (req, res) => {
+// Get Single Idea
+app.get('/showalldata/:id', async (req, res) => {
   try {
-    const result = await db.collection('allideas')
-      .find()
-      .limit(6)
-      .toArray();
-
-    res.send(result);
-  } catch (error) {
-    res.status(500).send({ error: error.message });
-  }
-});
-
-app.get('/showalldata/:id',(req,res,next) => {
-const header = req.headers.authorization
-if(header === "logged in"){
-next()} else {
-  res.status(401).json({message: "Unauthorised"})
-}
-},
-   async(req,res) =>{
-const {id} = req.params;
- const result = await destinationCollection.findOne({_id: new ObjectId(id)})
-res.json(result)
-})
-
-
-app.patch('/showalldata/:id', async(req,res) =>{
-  const id = req.params;
-  const updatedData = req.body;
-console.log(updatedData);
-  const result = await destinationCollection.updateOne(
-    {_id: new ObjectId(id)},
-    {$set: updatedData}
-  )
-  res.json(result)
-})
-
-// GET COMMENTS
-  app.get("/comments", async (req, res) => {
-    const { ideaId } = req.query;
-
-    const comments = await commentsCollection
-      .find({ ideaId })
-      .sort({ createdAt: -1 })
-      .toArray();
-
-    res.send(comments);
-  });
-
-  app.get("/comments6", async (req, res) => {
-  const result = await commentsCollection
-    .find()
-    .sort({ createdAt: -1 })
-    .limit(6)
-    .toArray();
-
-  res.send(result);
-});
-
-  // ADD COMMENT
-  app.post("/comments", async (req, res) => {
-    const comment = {
-      ...req.body,
-      createdAt: new Date(),
-    };
-
-    const result = await commentsCollection.insertOne(comment);
-
-    res.send({
-      _id: result.insertedId,
-      ...comment,
-    });
-  });
-
-  // UPDATE COMMENT
-  app.put("/comments/:id", async (req, res) => {
     const { id } = req.params;
+    const result = await ideasCollection.findOne({ _id: new ObjectId(id) });
 
-    await commentsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      {
-        $set: {
-          text: req.body.text,
-          updatedAt: new Date(),
-        },
-      }
-    );
+    if (!result) return res.status(404).json({ error: "Idea not found" });
 
-    res.send({ success: true });
-  });
-
-  // DELETE COMMENT
-  app.delete("/comments/:id", async (req, res) => {
-    const { id } = req.params;
-
-    await commentsCollection.deleteOne({
-      _id: new ObjectId(id),
-    });
-
-    res.send({ success: true });
-  });
-
-  // Fetch ideas shared ONLY by the logged-in user
-app.get('/myideas', async (req, res) => {
-  try {
-    const userEmail = req.query.email;
-
-    // Safety check: ensure an email was passed from Next.js
-    if (!userEmail) {
-      return res.status(400).json({ error: 'Email query parameter is required' });
-    }
-
-    // Query MongoDB: Match the 'email' field in your document
-    const query = { email: userEmail }; 
-    const result = await destinationCollection.find(query).toArray();
-    
     res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch your personal ideas' });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch idea" });
   }
 });
 
-app.delete("/ideas/:id", async (req, res) => {
+// Update Idea
+app.patch('/showalldata/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const ideaQuery = { _id: new ObjectId(id) };
-
-    // 1. Delete the actual idea from your 'allideas' collection
-    const result = await destinationCollection.deleteOne(ideaQuery);
-
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: "Idea not found in the vault" });
-    }
-
-    // 2. OPTIONAL CLEANUP: If you want to wipe comments associated with this idea
-    // Change 'ideaId' if your comments collection uses a different name to reference the parent idea
-    await commentsCollection.deleteMany({ ideaId: id }); 
-
-    res.send({ success: true, message: "Idea and its comments successfully removed" });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to delete idea", details: err.message });
-  }
-});
-
-app.patch('/ideas/:id', async (req, res) => {
-  try {
-    // 1. FIX: Destructure 'id' from req.params to get the string, not the object!
-    const { id } = req.params; 
     const updatedData = req.body;
 
-    console.log("Updating ID:", id);
-    console.log("Data Received:", updatedData);
-
-    // 2. Query MongoDB using the string variable
-    const result = await destinationCollection.updateOne(
+    const result = await ideasCollection.updateOne(
       { _id: new ObjectId(id) },
       { $set: updatedData }
     );
 
     if (result.matchedCount === 0) {
-      return res.status(404).json({ error: "No matching idea found to update" });
+      return res.status(404).json({ error: "Idea not found" });
     }
 
     res.json(result);
-  } catch (err) {
-    console.error("Patch Route Error:", err);
-    res.status(500).json({ error: "Failed to update idea document", details: err.message });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
+// Get My Ideas
+app.get('/myideas', async (req, res) => {
+  try {
+    const userEmail = req.query.email;
+    if (!userEmail) return res.status(400).json({ error: 'Email is required' });
 
-await client.db('admin').command({ping: 1})
-console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    const result = await ideasCollection
+      .find({ email: userEmail })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch your ideas' });
+  }
+});
+
+// Delete Idea + Comments
+app.delete("/ideas/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await ideasCollection.deleteOne({ _id: new ObjectId(id) });
+    await commentsCollection.deleteMany({ ideaId: id });
+
+    res.json({ success: true, message: "Idea and comments deleted" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== COMMENTS ====================
+// ==================== COMMENTS ====================
+
+// Get 6 Latest Comments (for Community Feedback section)
+app.get("/comments6", async (req, res) => {
+  try {
+    const result = await commentsCollection
+      .find()
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .toArray();
+
+    res.json(result);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch comments" });
+  }
+});
+
+// Get Comments for a specific idea
+app.get("/comments", async (req, res) => {
+  try {
+    const { ideaId } = req.query;
+    const comments = await commentsCollection
+      .find({ ideaId })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.json(comments);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add Comment
+app.post("/comments", async (req, res) => {
+  try {
+    const comment = { 
+      ...req.body, 
+      createdAt: new Date() 
+    };
+    const result = await commentsCollection.insertOne(comment);
+
+    res.status(201).json({ _id: result.insertedId, ...comment });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update Comment
+app.put("/comments/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await commentsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { 
+        $set: { 
+          text: req.body.text, 
+          updatedAt: new Date() 
+        } 
+      }
+    );
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete Comment
+app.delete("/comments/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await commentsCollection.deleteOne({ _id: new ObjectId(id) });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+// Start Server
+async function startServer() {
+  await connectDB();
+  
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
+  });
 }
-finally{
 
-}
-}
-run().catch(console.dir)
-
-
-app.listen(port,() =>{
-    console.log(`simple CRUD server is running on port ${port}`);
-})
+startServer();
