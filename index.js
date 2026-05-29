@@ -282,7 +282,7 @@ app.get("/showalldata/:id",verifyToken, async (req, res) => {
   });
 
   // Get My Comments
-  app.get("/mycomments", async (req, res) => {
+  app.get("/mycomments",verifyToken, async (req, res) => {
     try {
       const userId = req.query.userId;
 
